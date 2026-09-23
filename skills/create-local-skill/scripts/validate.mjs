@@ -1,0 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { resolve, join, basename } from 'node:path';
+const path = resolve(process.argv[2] ?? '.');
+const text = readFileSync(join(path, 'SKILL.md'), 'utf8');
+const front = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
+if (!front) throw new Error('Missing YAML frontmatter');
+const name = front[1].match(/^name:\s*([a-z0-9-]+)\s*$/m)?.[1];
+const description = front[1].match(/^description:\s*(.+)$/m)?.[1];
+if (!name || name !== basename(path) || name.length > 63 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) throw new Error('Invalid name or folder/name mismatch');
+if (!description?.trim() || description === '""') throw new Error('Missing description');
+if (/Describe the task-specific workflow and validation here\.|\bTODO\b|\[INSERT/i.test(text)) throw new Error('Unfinished scaffold');
+if (!text.slice(front[0].length).trim()) throw new Error('Missing skill instructions');
+console.log(`Valid skill: ${name} (structural checks only)`);

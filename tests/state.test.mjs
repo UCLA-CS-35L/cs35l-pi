@@ -1,0 +1,70 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { realpathSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+test('native shared state persists preferences across workspaces and isolates sessions and credentials', async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'pi-shared-state-')));
+  process.env.CS35L_STATE_DIR = join(dir, 'state');
+  process.env.OPENROUTER_API_KEY = 'test-placeholder-no-network';
+  const { prepareEnvironment } = await import('../lib/environment.mjs');
+  const { createHarnessRuntime } = await import('../lib/session.mjs');
+  const { checkFilePath } = await import('../lib/policy.mjs');
+  const { executeSandboxed } = await import('../lib/sandbox.mjs');
+  const workA = join(dir, 'a'), workB = join(dir, 'b');
+  mkdirSync(workA); mkdirSync(workB);
+  const pathsA = prepareEnvironment(workA);
+  const pathsB = prepareEnvironment(workB);
+  assert.equal(pathsA.agentDir, pathsB.agentDir);
+  assert.equal(pathsA.memory, pathsB.memory);
+  const skillRoot = join(pathsA.agentDir, 'skills');
+  const makeSkill = (base, name) => {
+    const path = join(base, name); mkdirSync(path, { recursive: true });
+    writeFileSync(join(path, 'SKILL.md'), `---\nname: ${name}\ndescription: Test skill for ${name}.\n---\nTest instructions.\n`);
+  };
+  makeSkill(skillRoot, 'shared-fixture');
+  makeSkill(join(workA, '.pi/skills'), 'workspace-fixture');
+  makeSkill(join(workA, 'skills'), 'legacy-fixture');
+  let first, second;
+  try {
+    first = await createHarnessRuntime(pathsA);
+    await first.session.bindExtensions({ mode: 'print', onError: e => { throw e; } });
+    const resources = first.services.resourceLoader.getSkills();
+    assert.deepEqual(resources.diagnostics, []);
+    assert.ok(resources.skills.some(s => s.name === 'workspace-fixture'));
+    assert.ok(resources.skills.some(s => s.name === 'legacy-fixture'));
+    assert.ok(resources.skills.some(s => s.name === 'shared-fixture'));
+    const model = first.services.modelRuntime.getModels('openrouter').find(m => m.reasoning && m.id !== 'openrouter/free');
+    assert.ok(model);
+    await first.session.setModel(model);
+    first.session.setThinkingLevel('high');
+    await first.session.extensionRunner.emit({ type: 'session_shutdown' });
+    const settings = JSON.parse(readFileSync(join(pathsA.agentDir, 'settings.json'), 'utf8'));
+    assert.equal(settings.defaultModel, model.id);
+    assert.equal(settings.defaultThinkingLevel, 'high');
+    second = await createHarnessRuntime(pathsB);
+    assert.equal(second.session.model.id, model.id);
+    assert.equal(second.session.thinkingLevel, 'high');
+    assert.notEqual(first.session.sessionManager.getSessionDir(), second.session.sessionManager.getSessionDir());
+    assert.ok(second.session.sessionManager.getSessionDir().startsWith(join(pathsA.agentDir, 'sessions')));
+    assert.ok(!second.services.resourceLoader.getSkills().skills.some(s => s.name === 'workspace-fixture'));
+    assert.ok(second.services.resourceLoader.getSkills().skills.some(s => s.name === 'shared-fixture'));
+    const sharedFile = join(skillRoot, 'shared-fixture/SKILL.md');
+    assert.equal(checkFilePath(sharedFile, workA, true, false), sharedFile);
+    assert.throws(() => checkFilePath(sharedFile, workA, true, true), /read-only/);
+    assert.throws(() => checkFilePath(join(pathsA.agentDir, 'auth.json'), workA, false, false), /outside/);
+    symlinkSync(join(pathsA.agentDir, 'auth.json'), join(skillRoot, 'escape'));
+    assert.throws(() => checkFilePath(join(skillRoot, 'escape'), workA, false, false), /outside/);
+    assert.equal(checkFilePath('.pi/skills/new/SKILL.md', workA, true, false), join(workA, '.pi/skills/new/SKILL.md'));
+    assert.throws(() => checkFilePath('.pi/settings.json', workA, true, false), /protected/);
+    let output = '';
+    const result = await executeSandboxed({ cwd: workA, command: `set -e; cat '${sharedFile}'; if cat '${pathsA.agentDir}/auth.json' 2>/dev/null; then exit 91; fi; ! (printf bad >> '${sharedFile}') 2>/dev/null`, onData: chunk => { output += chunk; } });
+    assert.equal(result.exitCode, 0, output);
+    assert.match(output, /Test instructions/);
+  } finally {
+    first?.session.dispose(); second?.session.dispose();
+    delete process.env.OPENROUTER_API_KEY;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
