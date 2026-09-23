@@ -1,6 +1,6 @@
 # CS35L Pi
 
-A Pi coding harness with training wheels. Uses `openrouter/free` by default; bring your own provider account or API key.
+A Pi coding harness with training wheels. **macOS support is experimental.** Uses `openrouter/free` by default; bring your own provider account or API key.
 
 ## Features
 
