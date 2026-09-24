@@ -35,11 +35,16 @@ test('the default ~/.pi/repo layout permits source writes while protecting agent
     writeFileSync(join(repo, 'package.json'), '{"type":"module"}');
     const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
       import assert from 'node:assert/strict';
-      import { root, agentDir, projectPaths } from './lib/paths.mjs';
+      import { root, agentDir, projectPaths, canonical } from './lib/paths.mjs';
+      import { dirname } from 'node:path';
       import { checkFilePath } from './lib/policy.mjs';
       assert.equal(projectPaths(root).workspace, root);
       assert.equal(checkFilePath('README.md', root, true, false), root + '/README.md');
-      assert.throws(() => projectPaths(agentDir), /private Pi state/);
+      const home = dirname(dirname(agentDir));
+      assert.equal(projectPaths(home).workspace, canonical(home));
+      assert.equal(projectPaths(agentDir).workspace, canonical(agentDir));
+      assert.equal(checkFilePath('notes.txt', home, true, false), canonical(home) + '/notes.txt');
+      assert.throws(() => checkFilePath(agentDir + '/auth.json', home, true, false), /protected/);
       assert.throws(() => checkFilePath(agentDir + '/auth.json', root, true, false), /outside/);
     `], { cwd: repo, env: { ...process.env, CS35L_STATE_DIR: state }, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
