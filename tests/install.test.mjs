@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSync, copyFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -13,7 +13,7 @@ const git = (cwd, ...args) => {
 };
 
 test('piped installer clones a pinned revision, rebases upgrades with autostash, and creates a working launcher', () => {
-  const base = mkdtempSync(join(tmpdir(), 'pi-installer-'));
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'pi-installer-')));
   try {
     const repo = join(base, 'upstream'), home = join(base, 'home'), bin = join(base, 'tools');
     for (const dir of [repo, home, bin, join(repo, 'lib'), join(repo, 'scripts')]) mkdirSync(dir, { recursive: true });

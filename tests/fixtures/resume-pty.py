@@ -4,6 +4,8 @@ from pathlib import Path
 
 root = Path(sys.argv[2])
 with tempfile.TemporaryDirectory(prefix="pi-resume-") as base:
+    # macOS exposes temporary directories through /var and /private/var.
+    base = os.path.realpath(base)
     env = {**os.environ, "CS35L_STATE_DIR": base + "/state", "PI_OFFLINE": "1", "TERM": "xterm-256color"}
     subprocess.run([sys.argv[1], str(root / "tests/fixtures/resume-seed.mjs"), base], env=env, check=True)
     wrapper = Path(base) / "cs35l-pi"
@@ -19,15 +21,15 @@ with tempfile.TemporaryDirectory(prefix="pi-resume-") as base:
         transcript = bytearray()
         def screen():
             return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", transcript.decode(errors="replace"))
-        def wait_for(predicate, label):
-            deadline = time.monotonic() + 30
+        def wait_for(predicate, label, timeout=30):
+            deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
                 if predicate(): return
                 if select.select([master], [], [], .1)[0]:
                     try: transcript.extend(os.read(master, 65536))
                     except OSError as e:
                         if e.errno != errno.EIO: raise
-                        break
+                        time.sleep(0.01)
             raise AssertionError(label + "\n" + screen()[-6000:])
         try:
             wait_for(lambda: "Resume Session (All)" in screen(), "Not in all-session scope")
@@ -47,7 +49,9 @@ with tempfile.TemporaryDirectory(prefix="pi-resume-") as base:
                 os.write(master, b"\x03")
                 wait_for(lambda: "Press Ctrl+C again" in screen(), "Harness extension not active")
                 os.write(master, b"\x03")
-            assert proc.wait(timeout=10) == 0
+            # Waiting without reading can block terminal shutdown on a full PTY.
+            wait_for(lambda: proc.poll() is not None, "Pi did not exit", timeout=10)
+            assert proc.returncode == 0
         finally:
             if proc.poll() is None:
                 os.killpg(proc.pid, signal.SIGKILL)

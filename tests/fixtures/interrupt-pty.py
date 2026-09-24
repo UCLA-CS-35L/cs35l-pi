@@ -14,6 +14,8 @@ import termios
 import time
 
 with tempfile.TemporaryDirectory(prefix="pi-interrupt-") as base:
+    # macOS exposes temporary directories through /var and /private/var.
+    base = os.path.realpath(base)
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
     process = subprocess.Popen(
@@ -38,7 +40,7 @@ with tempfile.TemporaryDirectory(prefix="pi-interrupt-") as base:
                 except OSError as error:
                     if error.errno != errno.EIO:
                         raise
-                    break
+                    time.sleep(0.01)
         raise AssertionError(label + "\n" + screen()[-6000:])
 
     try:
@@ -57,7 +59,8 @@ with tempfile.TemporaryDirectory(prefix="pi-interrupt-") as base:
         wait_for(lambda: "Press Ctrl+C again within 0.5 seconds to exit Pi." in screen(), "No exit hint")
         assert process.poll() is None, "First idle Ctrl+C exited Pi"
         os.write(master, b"\x03")
-        process.wait(timeout=10)
+        # Keep draining terminal output while Pi restores the terminal on exit.
+        wait_for(lambda: process.poll() is not None, "Pi did not exit", timeout=10)
         assert process.returncode == 0, process.returncode
         print("PTY verified: Ctrl+C indicators, cancelled model connection, subsequent prompt, idle exit hint, double-Ctrl+C exit.")
     finally:
