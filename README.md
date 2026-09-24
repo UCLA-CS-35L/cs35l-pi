@@ -39,6 +39,14 @@ cs35l-pi
 
 Installs to `~/.pi/repo/cs35l-pi`. Rerun the curl command to upgrade with rebase and autostash. From a cloned checkout, run `bash install.sh` instead.
 
+## Running inside Emacs
+
+Use `ansi-term` in character mode; `M-x shell`/comint may show escape codes and broken layouts.
+
+Make sure Emacs starts with a UTF-8 locale. You can set this explicitly with `LC_ALL=C.utf8 emacs`.
+
+Emacs may intercept Escape and Ctrl+C. Use `/quit` to exit Pi, or remap Pi's keybindings as needed.
+
 ## Models
 
 You need to bring your own account or API key. Use `/login` to connect it and `/model` to choose a model.
